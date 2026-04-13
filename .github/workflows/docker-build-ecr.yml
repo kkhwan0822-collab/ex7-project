@@ -1,0 +1,54 @@
+name: Private EC2 via SSM and ECR
+
+on:
+  push:
+      branches: ["main"]
+
+jobs:
+    build-and-deploy:
+        name: Build and Deploy to EC2(with SSM and ECR)
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+         # SSM/ ECR 자격 증명
+            - name: AWS 자격 확인
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                aws-region: "${{ secrets.AWS_REGION }}"
+            
+            - name: login to Amazon ECR
+              id: login-ecr  # 실질적인 레지스트리
+              uses: aws-actions/amazon-ecr-login@v2
+         
+
+             # Build amd Push Docker Image to ECR: 사용자 계정
+            - name: Build and Push Docker Image to ECR
+              env:
+                ECR_REGISTRY: ${{steps.login-ecr.outputs.registry}}
+                ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+                IMAGE_TAG: ${{ sercrets.IMAGE_TAG}}
+              run: |
+                # build the docker Image
+                docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+                # push the docker image to ECR
+                docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+            - name: Deploy to AWS SSM
+              run: |
+                IMAGE_URL="${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}/${{ secrets.IMAGE_TAG}}"
+                
+                aws ssm send-command \
+                  --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+                  --document-name "AWS-RunShellScript" \
+                  --parameters 'commands=[
+                    "aws ecr get-login-password --region ${{ secrets.AWS_REGION}} | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}",
+                    "sudo docker pull $IMAGE_TAG",
+                    "sudo docker stop nginx-container || true",
+                    "sudo docker rm nginx-container || true",
+                    "sudo docker run --name nginx-container -p 81:81 $IMAGE_TAG"
+                  ]' \
+                --region ${{ secrets.AWS_REGION }}
