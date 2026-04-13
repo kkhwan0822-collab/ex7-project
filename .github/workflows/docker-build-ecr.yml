@@ -47,9 +47,9 @@ jobs:
                   --document-name "AWS-RunShellScript" \
                   --parameters 'commands=[
                     "aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}",
-                    "sudo docker pull $IMAGE_URL",
+                    "sudo docker pull 458894893383.dkr.ecr.ap-south-1.amazonaws.com/std5/ecr:ex7-v2",
                     "sudo docker stop nginx-container || true",
                     "sudo docker rm nginx-container || true",
-                    "sudo docker run -d --name nginx-container -p 80:80 $IMAGE_URL"
+                    "sudo docker run -d --name nginx-container -p 80:80 458894893383.dkr.ecr.ap-south-1.amazonaws.com/std5/ecr:ex7-v2"
                   ]' \
                 --region ${{ secrets.AWS_REGION }}
