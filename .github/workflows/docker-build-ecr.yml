@@ -1,8 +1,8 @@
 name: Private EC2 via SSM and ECR
 
 on:
-  push:
-      branches: ["main"]
+    push:
+        branches: [ "main" ]
 
 jobs:
     build-and-deploy:
@@ -10,45 +10,46 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - name: Checkout Code
+            - name: Checkout code
               uses: actions/checkout@v4
-         # SSM/ ECR 자격 증명
-            - name: AWS 자격 확인
+
+            # SSM / ECR credentials configuration(AWS 자격 증명)
+            - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v4
               with:
                 aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
                 aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
                 aws-region: "${{ secrets.AWS_REGION }}"
-            
-            - name: login to Amazon ECR
-              id: login-ecr  # 실질적인 레지스트리
-              uses: aws-actions/amazon-ecr-login@v2
-         
 
-             # Build amd Push Docker Image to ECR: 사용자 계정
+            - name: Login to Amazon ECR
+              id: login-ecr     # ECR Registry에 로그인하여 Docker 이미지를 푸시할 수 있도록 설정
+              uses: aws-actions/amazon-ecr-login@v2
+
+            # Build and Push Docker Image to ECR: 사용자 계정에 역할 필요
             - name: Build and Push Docker Image to ECR
               env:
-                ECR_REGISTRY: ${{steps.login-ecr.outputs.registry}}
+                ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
                 ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
                 IMAGE_TAG: ${{ secrets.IMAGE_TAG}}
               run: |
-                # build the docker Image
+                # Build the Docker image
                 docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-                # push the docker image to ECR
+                # Push the Docker image to ECR
                 docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-            - name: Deploy to AWS SSM
+            - name: Deploy to EC2 via SSM
               run: |
+                # SSM을 사용하여 EC2 인스턴스에 명령 실행
                 IMAGE_URL="${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ secrets.IMAGE_TAG}}"
-                
+
                 aws ssm send-command \
                   --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
                   --document-name "AWS-RunShellScript" \
                   --parameters 'commands=[
-                    "aws ecr get-login-password --region ${{ secrets.AWS_REGION}} | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}",
+                    "aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}",
                     "sudo docker pull $IMAGE_URL",
                     "sudo docker stop nginx-container || true",
                     "sudo docker rm nginx-container || true",
-                    "sudo docker run --name nginx-container -p 80:80 $IMAGE_URL"
+                    "sudo docker run -d --name nginx-container -p 80:80 $IMAGE_URL"
                   ]' \
                 --region ${{ secrets.AWS_REGION }}
